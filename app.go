@@ -16,8 +16,8 @@ import (
 var db *sqlx.DB
 
 func main() {
-	// dbInit, err := sqlx.Connect("postgres", "host=34.101.216.10 user=skilvul password=skilvul123apa dbname=skilvul-groupchat sslmode=disable")
-	dbInit, err := sqlx.Connect("postgres", "host=localhost user=postgres password=password dbname=skilvul-groupchat sslmode=disable")
+	dbInit, err := sqlx.Connect("postgres", "host=34.101.216.10 user=skilvul password=skilvul123apa dbname=skilvul-groupchat sslmode=disable")
+	// dbInit, err := sqlx.Connect("postgres", "host=localhost user=postgres password=password dbname=skilvul-groupchat sslmode=disable")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -148,6 +148,7 @@ func login(c *gin.Context) {
 
 func change_profile(c *gin.Context) {
 	username := c.Request.FormValue("username")
+	password := c.Request.FormValue("password")
 	profile_pic := c.Request.FormValue("profile_pic")
 
 	query := `
@@ -159,10 +160,45 @@ func change_profile(c *gin.Context) {
 	username = $2
 	`
 
-	_, err := db.Exec(query, profile_pic, username)
+	query_get_user := `
+	SELECT 
+		user_id,
+		username,
+		password,
+		salt,
+		created_at,
+		profile_pic
+	FROM
+		account
+	WHERE
+		username = $1
+	`
+
+	var user UserDB
+	err := db.Get(&user, query_get_user, username)
 	if err != nil {
 		c.JSON(400, StandardAPIResponse{
 			Err: err.Error(),
+		})
+		return
+	}
+
+	password += user.Salt.String
+	h := sha256.New()
+	h.Write([]byte(password))
+	hashed_password := fmt.Sprintf("%x", h.Sum(nil))
+
+	if user.Password.String != hashed_password {
+		c.JSON(401, StandardAPIResponse{
+			Err: "Wrong password",
+		})
+		return
+	}
+
+	_, err2 := db.Exec(query, profile_pic, username)
+	if err2 != nil {
+		c.JSON(400, StandardAPIResponse{
+			Err: err2.Error(),
 		})
 		return
 	}
@@ -171,7 +207,9 @@ func change_profile(c *gin.Context) {
 		Err:     "null",
 		Message: "Success update user profile",
 		Data: User{
+			Username:   username,
 			ProfilePic: profile_pic,
+			CreatedAt:  user.CreatedAt.Unix(),
 		},
 	})
 }
